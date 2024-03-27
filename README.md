@@ -1,2 +1,3 @@
-# games
-This is where I'll put the code of my games made on Cuzbh.
+# Boumety's games made on Cuzbh
+
+This is were I'll save the code of my worlds.

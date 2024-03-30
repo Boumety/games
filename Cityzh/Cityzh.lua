@@ -34,10 +34,10 @@ Client.OnStart = function()
 
 	fundings = {}
 
-	time = Time.Unix()
+	time = nil
 	upgrades = {}
 	level = 0
-	tickets = 0
+	tickets = 0.0
 	coins = 100
 
 	salary = 10
@@ -102,6 +102,8 @@ Client.OnStart = function()
 								loadHouses()
 
 								log(Time.Unix(),Player.Username,"Build its house at the position: " .. "[ X: " .. myHouse.Position.X .. " Y: " .. myHouse.Position.Y .. " Z: " .. myHouse.Position.Z .. " ]")
+
+								saveTime(Time.Unix())
 
 				--textDescription.Text = "Position: " .. "[ X: " .. myHouse.block.Position.X .. " Y: " .. myHouse.block.Position.Y .. " Z: " .. myHouse.block.Position.Z .. " ]" .. "\n" .. "Level: " .. level .. maxLevel, Color.White,"big"
 
@@ -169,7 +171,16 @@ Client.OnStart = function()
 	end
 
 	fund.onRelease = function()
-		createMenuFund()
+		world:Get("funds", function(s,r)
+			if s then
+				fundings = r.funds
+				createMenuFund()
+			end
+		end)
+	end
+
+	vote.onRelease = function()
+		--data:Get("coins", function(s, r) print(r.coins) end)
 	end
 
 	Camera:SetModeFree()
@@ -183,10 +194,6 @@ Client.OnStart = function()
     }
 
     roads = {}
-
-	paid = function()
-		coin = coin + moneyPerHour
-	end
 
 	loadHouses = function()
 		for i=#blocks.houses,1,-1 do
@@ -313,6 +320,21 @@ Client.OnStart = function()
 		end)
 	end
 
+	saveTime = function(t)
+		data:Set("time", Time.Unix(), function(s) end)
+	end
+
+	changeMoney = function(nb)
+		coins = coins + nb
+		data:Set("coins", coins, function(s) end)
+	end
+
+	changeTicket = function(nb)
+		tickets = tickets + nb
+		data:Set("tickets", tickets, function(s) end)
+	end
+
+	Menu:AddDidBecomeActiveCallback(saveTime)
 
 	-- RESET DATA
 
@@ -322,18 +344,28 @@ Client.OnStart = function()
 	--world:Set("news", {}, "money", 0, "votes", {}, "funds", {}, function(r,s)
 	--end)
 
-	--[[data:Get("coins","tickets","upgrades","time", function(s,r)
+	data:Get("coins","salary","tickets","upgrades","time", function(s,r)
 		if s then
 			if r.coins == nil then
-				data:Set("coins", coins, "tickets", tickets, "upgrades", {}, "time", Time.Unix(), function(s) end)
+				data:Set("coins", coins, "salary", salary, "tickets", tickets, "upgrades", {}, function(s) end)
 			else
 				coins = r.coins
 				tickets = r.tickets
 				upgrades = r.upgrades
 				time = r.time
+				salary = r.salary
+				if time ~= nil then
+					-- Get pay
+					coins = coins + math.floor((Time.Unix() - time) / 3600) * salary
+					if maxCoins < coins then
+						coins = maxCoins
+					end
+
+					data:Set("coins", coins, "time", Time.Unix(), function(s) end)
+				end
 			end
 		end
-	end)]]
+	end)
 
 	world:Get("roads","houses","funds", function(s,r)
 		if s then
@@ -398,10 +430,10 @@ Client.OnStart = function()
 		detailButton.onRelease = function()
 			local amount = detailInput:_text()
 			detailInput.Text = ""
-			if fundings[id].max == fundings[id].money then alert:create("Sorry, but the project has already been fund") return end
-			if amount == "" then alert:create("You need to enter a number.") return end
-			if type(amount) == "integer" then alert:create("You need to enter a integer.") return end
-			if tonumber(amount) > coins then alert:create("You don't have enough coins.") return end
+			if fundings[id].max == fundings[id].money then return end
+			if amount == "" then return end
+			if type(tonumber(amount)) ~= "integer" then return end
+			if tonumber(amount) > coins then return end
 
 			amount = tonumber(amount)
 
@@ -419,15 +451,17 @@ Client.OnStart = function()
 						amount = myFund.max - myFund.money
 					end
 
-					coins = coins - amount
+					local credits = amount / 10
+
 					t[id].money = t[id].money + amount
 					maxText.Text = t[id].money .. "/" .. myFund.max .. " 💰"
 					world:Set("funds", t, function(s)
 						if s then
 							fundings = t
+							changeMoney(-amount)
+							changeTicket(credits)
 						else
 							alert:create("Sorry, an error occured. You didn't lost any coins.")
-							coins = coins + amount
 						end
 					end)
 				end

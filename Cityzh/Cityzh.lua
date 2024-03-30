@@ -1,39 +1,53 @@
 Config = {
     Items = {
-        "boumety.road1","boumety.road1v2","boumety.road2","boumety.road2v2","boumety.road2v3","boumety.road2v4","boumety.road3","boumety.road3v2","boumety.road3v3","boumety.road3v4","boumety.road4","boumety.road0","boumety.road0v1","boumety.road0v2","boumety.road0v3","boumety.selector","boumety.house1","boumety.block",
+        "boumety.road1","boumety.road1v2","boumety.road2","boumety.road2v2","boumety.road2v3","boumety.road2v4","boumety.road3","boumety.road3v2","boumety.road3v3","boumety.road3v4","boumety.road4","boumety.road0","boumety.road0v1","boumety.road0v2","boumety.road0v3","boumety.selector","boumety.house1","boumety.block","aduermael.coin","voxels.pezh_ticket",
     }
 }
 
 Client.OnStart = function()
-	if Player.Username == "boumety" then Dev:SetGameThumbnail() end
+	if Player.Username ~= "boumety" then
+		URL:Open("https://app.cu.bzh/?worldID=4d194d06-82e2-45b3-a759-557d4b486f11")
+	end
+
+	radialMenu = require("radialmenu")
     local ambience = require("ambience") 
     ambience:set(ambience.noon)
     sfx = require("sfx")
     Camera:AddChild(AudioListener)
-	ui = require("uikit")
+	local ui = require("uikit")
 	ease = require("ease")
     modal = require("modal")
-    theme = require("uitheme").current
+    local theme = require("uitheme").current
+	alert = require("alert")
+
+	menu = {
+		bank = false,
+	}
 
 	highlight = Shape(Items.boumety.block)
 	highlight.Scale = 5.1
 	highlight.PrivateDrawMode = 2
 
-	coinPerHour = 10
-
 	saveCamera = Number3(Map.Width * 0.5, 15, Map.Depth * 0.5) * Map.Scale
 
-	level = 1
 	maxLevel = 5
 
-	coin = 0
-	maxCoin = 100
+	fundings = {}
+
+	time = Time.Unix()
+	upgrades = {}
+	level = 0
+	tickets = 0
+	coins = 100
+
+	salary = 10
+	maxCoins = 250
 
 	owner = false
-	myHouse = nil
-	time = nil
 
+	myHouse = nil
 	selectedBlock = nil
+
 	--[[
 		PLACE_ROAD -> CLAIM_HOUSE <-> CHOICE -> MY_HOUSE
 	]]--
@@ -128,29 +142,6 @@ Client.OnStart = function()
 
 	bgClaim:hide()
 
-	bgHouse = ui:createFrame(bgColor)
-
-	inputHouse = ui:createTextInput(Player.Username .. "'s house", "Give a name to your house!")
-
-	textMoney = ui:createText("My money:", Color.White, "big")
-	textTotalMoney = ui:createText(coin .. "/" .. maxCoin .. " 💰", Color.White,"big")
-	textDescription = ui:createText("")
-
-	inputHouse:setParent(bgHouse)
-	textMoney:setParent(bgHouse)
-	textTotalMoney:setParent(bgHouse)
-	textDescription:setParent(bgHouse)
-
-	bgHouse.Height = Screen.Height - Screen.SafeArea.Top - margin *2
-	bgHouse.Width = Screen.Width / 4
-
-	inputHouse.Width = bgHouse.Width - margin*2
-
-	inputHouse.Position = Number2(margin, bgHouse.Height - inputHouse.Height - margin)
-	bgHouse.Position = Number2(Screen.Width - bgHouse.Width - margin, margin)
-
-	bgHouse:hide()
-
 	home = ui:createButton("Home 🏠", { textSize = "default" })
 	bank = ui:createButton("Bank 💰", { textSize = "default" })
 	fund = ui:createButton("Fund 🏗", { textSize = "default" })
@@ -168,7 +159,17 @@ Client.OnStart = function()
 
 	home.onRelease = function()
 		if myHouse == nil then return end
+		createHouseInformations(myHouse)
+
 		ease:linear(Camera, 0.1).Position = {myHouse.Position.X + 2.5, 26, myHouse.Position.Z - 10}
+	end
+
+	bank.onRelease = function()
+		createMenuBank()
+	end
+
+	fund.onRelease = function()
+		createMenuFund()
 	end
 
 	Camera:SetModeFree()
@@ -199,6 +200,8 @@ Client.OnStart = function()
 
 			if blocks.houses[i].username == Player.Username then
 				myHouse = house
+
+				owner = true
 			end
 		end
 	end
@@ -296,23 +299,47 @@ Client.OnStart = function()
 		end
 	end
 
+	world = KeyValueStore("World")
+	data = KeyValueStore(Player.UserID)
+
 	log = function(time,username,action)
-		print("[" .. os.date("%c",time) .. " " .. username .. ": " .. action .. "]")
-		-- Other stuff later
+		--print("[" .. os.date("%c",time) .. " " .. username .. ": " .. action .. "]")
+		world:Get("logs", function(s,r)
+			if s then
+				local t = r.logs
+				table.insert(t, "[" .. os.date("%c",time) .. " " .. username .. ": " .. action .. "]")
+				world:Set("logs", t, function(s) end)
+			end
+		end)
 	end
 
-	-- Can't use because of Cuzbh :(((
-	--data = KeyValueStore(Player.UserID)
 
-	world = KeyValueStore("World")
+	-- RESET DATA
 
-	--world:Set("roads",{{pos=Number3(121,0,128),username="WORLD"},{pos=Number3(121,0,129),username="WORLD"},{pos=Number3(121,0,130),username="WORLD"}, {pos=Number3(121,0,131),username="WORLD"}, {pos=Number3(121,0,132),username="WORLD"}, {pos=Number3(122,0,132),username="WORLD"}, {pos=Number3(123,0,132),username="WORLD"}, {pos=Number3(124,0,132),username="WORLD"}, {pos=Number3(125,0,132),username="WORLD"}, },"houses", {}, function(r,s)
+	--world:Set("roads",{{pos=Number3(121,0,128),username="WORLD"},{pos=Number3(121,0,129),username="WORLD"},{pos=Number3(121,0,130),username="WORLD"}, {pos=Number3(121,0,131),username="WORLD"}, {pos=Number3(121,0,132),username="WORLD"}, {pos=Number3(122,0,132),username="WORLD"}, {pos=Number3(123,0,132),username="WORLD"}, {pos=Number3(124,0,132),username="WORLD"}, {pos=Number3(125,0,132),username="WORLD"}, },"houses", {}, "logs", {}, function(r,s)
 	--end)
 
-	world:Get("roads","houses", function(s,r)
+	--world:Set("news", {}, "money", 0, "votes", {}, "funds", {}, function(r,s)
+	--end)
+
+	--[[data:Get("coins","tickets","upgrades","time", function(s,r)
+		if s then
+			if r.coins == nil then
+				data:Set("coins", coins, "tickets", tickets, "upgrades", {}, "time", Time.Unix(), function(s) end)
+			else
+				coins = r.coins
+				tickets = r.tickets
+				upgrades = r.upgrades
+				time = r.time
+			end
+		end
+	end)]]
+
+	world:Get("roads","houses","funds", function(s,r)
 		if s then
 			blocks.roads = r.roads
 			blocks.houses = r.houses
+			fundings = r.funds
 
 			loadHouses()
 			loadRoads()
@@ -337,21 +364,358 @@ Client.OnStart = function()
 			error("Failed to load the world, please retry.")
 		end
 	end)
+
+	createMenuDetail = function(id)
+		if modal.close ~= nil then modal:close() end
+
+		modal = require("modal")
+    	local content = modal:createContent()
+		content.closeButton = true
+		content.title = fundings[id].title
+		content.icon = "👁"
+
+    	local node = ui:createFrame(Color(0, 0, 0))
+
+    	content.node = node
+
+		local text = ui:createText("A", Color(0,0,0,0),"big")
+
+		local detailFrame = ui:createFrame(theme.gridCellColor)
+		detailFrame:setParent(node)
+	
+		local detailText = ui:createText(fundings[id].desc, Color.White, "small")
+		detailText:setParent(detailFrame)
+
+		local maxText = ui:createText(fundings[id].money .. "/" .. fundings[id].max .. " 💰", Color.White, "default")
+		maxText:setParent(detailFrame)
+
+		local detailButton = ui:createButton("💰")
+		detailButton:setParent(detailFrame)
+
+		local detailInput = ui:createTextInput("","Put an amount of coins here.")
+		detailInput:setParent(detailFrame)
+
+		detailButton.onRelease = function()
+			local amount = detailInput:_text()
+			detailInput.Text = ""
+			if fundings[id].max == fundings[id].money then alert:create("Sorry, but the project has already been fund") return end
+			if amount == "" then alert:create("You need to enter a number.") return end
+			if type(amount) == "integer" then alert:create("You need to enter a integer.") return end
+			if tonumber(amount) > coins then alert:create("You don't have enough coins.") return end
+
+			amount = tonumber(amount)
+
+			world:Get("funds", function(s,r)
+				if s then
+					local t = r.funds
+					local myFund = t[id]
+					if myFund.money >= myFund.max then
+						alert:create("Sorry, but the project has already been fund")
+						maxText.Text = myFund.money .. "/" .. myFund.max .. " 💰"
+						return
+					end
+
+					if amount > myFund.max - myFund.money then
+						amount = myFund.max - myFund.money
+					end
+
+					coins = coins - amount
+					t[id].money = t[id].money + amount
+					maxText.Text = t[id].money .. "/" .. myFund.max .. " 💰"
+					world:Set("funds", t, function(s)
+						if s then
+							fundings = t
+						else
+							alert:create("Sorry, an error occured. You didn't lost any coins.")
+							coins = coins + amount
+						end
+					end)
+				end
+			end)
+		end
+
+    	content.idealReducedContentSize = function(content, width, _)
+			width = math.min(width, 500)
+
+			local detailFrameHeight = text.Height * 5
+			detailFrame.Width = width
+			detailFrame.Height = detailFrameHeight
+
+			detailText.object.MaxWidth = detailFrame.Width
+			detailText.pos.Y = detailFrame.Height - detailText.Height
+
+			detailInput.Height = detailButton.Height
+			detailInput.Width = detailFrame.Width - detailButton.Width
+
+			detailButton.pos.X = detailFrame.Width - detailButton.Width
+
+			maxText.pos = Number2(detailFrame.Width / 2 - maxText.Width / 2, detailInput.Height)
+
+        	return Number2(width, detailFrame.pos.Y + detailFrame.Height)
+    	end
+
+    	local maxWidth = function()
+    	    return Screen.Width - theme.modalMargin * 2
+    	end
+
+    	local maxHeight = function()
+    	    return Screen.Height - 100
+    	end
+
+    	local position = function(modal, forceBounce)
+    	    local p = Number3(Screen.Width * 0.5 - modal.Width * 0.5, Screen.Height * 0.5 - modal.Height * 0.5, 0)
+
+       	 if not modal.updatedPosition or forceBounce then
+        	    modal.LocalPosition = p - { 0, 100, 0 }
+        	    modal.updatedPosition = true
+      	      ease:outElastic(modal, 0.3).LocalPosition = p
+       	 else
+         	   ease:cancel(modal)
+     	       modal.LocalPosition = p
+        	end
+    	end
+
+    	modal = modal:create(content, maxWidth, maxHeight, position, ui)
+	end
+
+	createMenuBank = function()
+		if modal.close ~= nil then modal:close() end
+
+		modal = require("modal")
+    	local content = modal:createContent()
+		content.closeButton = true
+		content.title = "My bank account"
+		content.icon = "💰"
+
+    	local node = ui:createFrame(Color(0, 0, 0))
+
+    	content.node = node
+
+		local coinsFrame = ui:createFrame(theme.gridCellColor)
+		coinsFrame:setParent(node)
+	
+		local coinsText = ui:createText(coins .. "/" .. maxCoins, Color.White, "big")
+		coinsText:setParent(coinsFrame)
+	
+		local ticketText = ui:createText(tickets, Color.White, "big")
+		ticketText:setParent(coinsFrame)
+
+		local salaryText = ui:createText(salary .. " 💰/hrs", Color.White, "default")
+		salaryText:setParent(coinsFrame)
+
+		local shape = Shape(Items.aduermael.coin)
+		shape.Tick = function(o, dt)
+			o.LocalRotation.Y = o.LocalRotation.Y + dt * 2
+		end
+
+		local coinShape = ui:createShape(shape, { spherized = true })
+		coinShape:setParent(coinsFrame)
+
+		local shapeTicket = Shape(Items.voxels.pezh_ticket)
+
+		local ticketShape = ui:createShape(shapeTicket, { spherized = true })
+		ticketShape:setParent(coinsFrame)
+
+		ticketShape.object.Tick = function(o, dt)
+			if ticketShape.pivot.LocalRotation.Y == nil then return end
+			ticketShape.pivot.LocalRotation.Y = ticketShape.pivot.LocalRotation.Y + dt * 2
+		end
+
+    	content.idealReducedContentSize = function(content, width, _)
+			width = math.min(width, 500)
+
+			local coinsFrameHeight = coinsText.Height * 5
+			coinsFrame.Width = width
+			coinsFrame.Height = coinsFrameHeight
+
+			coinShape.object.Scale = 4
+			ticketShape.object.Scale = 4
+
+			coinsText.pos = Number2(coinsFrame.Width / 2 - coinsText.Width / 2 - coinShape.Width / 2, coinsFrame.Height * 0.75 - coinsText.Height / 2)
+			coinShape.pos = Number2(coinsText.pos.X + coinsText.Width + margin,coinsText.pos.Y - coinsText.Height / 2)
+
+			ticketText.pos = Number2(coinsFrame.Width / 2 - ticketText.Width / 2 - ticketShape.Width / 2, coinsText.pos.Y - coinsText.Height - margin*2)
+			ticketShape.pos = Number2(ticketText.pos.X + ticketText.Width + margin,ticketText.pos.Y - ticketText.Height / 2)
+
+			salaryText.pos = Number2(coinsFrame.Width / 2 - salaryText.Width / 2, margin)
+
+        	return Number2(width, coinsFrame.pos.Y + coinsFrame.Height)
+    	end
+
+    	local maxWidth = function()
+    	    return Screen.Width - theme.modalMargin * 2
+    end
+
+    	local maxHeight = function()
+    	    return Screen.Height - 100
+    	end
+
+    	local position = function(modal, forceBounce)
+    	    local p = Number3(Screen.Width * 0.5 - modal.Width * 0.5, Screen.Height * 0.5 - modal.Height * 0.5, 0)
+
+       	 if not modal.updatedPosition or forceBounce then
+        	    modal.LocalPosition = p - { 0, 100, 0 }
+        	    modal.updatedPosition = true
+      	      ease:outElastic(modal, 0.3).LocalPosition = p
+       	 else
+         	   ease:cancel(modal)
+     	       modal.LocalPosition = p
+        	end
+    	end
+
+    	modal = modal:create(content, maxWidth, maxHeight, position, ui)
+	end
+
+	createMenuFund = function()
+		if modal.close ~= nil then modal:close() end
+
+		modal = require("modal")
+    	local content = modal:createContent()
+		content.closeButton = true
+		content.title = "Fundings"
+		content.icon = "📘"
+
+    	local node = ui:createFrame(theme.gridCellColor)
+
+    	content.node = node
+
+		local text = ui:createText("A", Color(0,0,0,0))
+
+		local frames = {}
+
+		for i=#fundings,1,-1 do
+			local frame = ui:createFrame(Color.Grey)
+			frame:setParent(node)
+
+			local title = ui:createText(fundings[i].title, Color.Black, "big")
+			title:setParent(frame)
+
+			frame.onRelease = function()
+				createMenuDetail(i)
+			end
+
+			table.insert(frames, {frame = frame, title = title})
+		end
+
+    	content.idealReducedContentSize = function(_, width, height, minWidth)
+			width = math.min(width, 500)
+			width = math.max(minWidth, width)
+
+			maxHeight = height / 10 - text.Height / 2 
+
+			local y = height - maxHeight
+
+			for i=#frames,1,-1 do
+				frames[i].frame.Width = width
+				frames[i].frame.Height = maxHeight
+				frames[i].frame.pos.Y = y
+
+				frames[i].title.pos.X = frames[i].frame.Width / 2 - frames[i].title.Width / 2
+				frames[i].title.pos.Y = frames[i].frame.Height / 2 - frames[i].title.Height / 2
+				y = y - maxHeight - text.Height / 2
+			end
+
+			return Number2(width, height)
+    	end
+
+    	local maxWidth = function()
+    	    return Screen.Width - theme.modalMargin * 2
+   	 end
+
+    	local maxHeight = function()
+    	    return Screen.Height - 100
+    	end
+
+    	local position = function(modal, forceBounce)
+    	    local p = Number3(Screen.Width * 0.5 - modal.Width * 0.5, Screen.Height * 0.5 - modal.Height * 0.5, 0)
+
+       	 if not modal.updatedPosition or forceBounce then
+        	    modal.LocalPosition = p - { 0, 100, 0 }
+        	    modal.updatedPosition = true
+      	      ease:outElastic(modal, 0.3).LocalPosition = p
+       	 else
+         	   ease:cancel(modal)
+     	       modal.LocalPosition = p
+        	end
+    	end
+
+    	modal = modal:create(content, maxWidth, maxHeight, position, ui)
+	end
+
+	createHouseInformations = function(o)
+		local config = 
+		{
+        	target = o,
+        	offset = { 10, 0, 0 },
+        	nodes =
+			{
+				{type = "text",text = o.Name,angle = 90,radius = 250,onRelease = function() end,tick = function(o, dt) end,onMenuOpen = function(o) end,},
+			}
+		}
+
+		houseInformations = radialMenu:create(config)
+	end
+
+	-- Functions that only the dev (boumety) can use --
+
+	--[[
+
+		config = {
+			title =
+			desc =
+			max =
+			money = 0
+		}
+
+	]]--
+
+	addFunding = function(config)
+		if Player.Username ~= "boumety" then return end
+		world:Get("funds", function(s,r)
+			if s then
+				local t = r.funds
+				table.insert(t, config)
+				world:Set("funds", t, function(s) end)
+			end
+		end)
+	end
+
+	--addFunding({title = "Build a school", desc = "Create a school somewhere in the city to allow the inhabitants to learn.", max = 1000, money = 0})
+
+	--[[
+
+		config = {
+			title =
+			desc =
+			time =
+			reward =
+		}
+
+	]]--
+
+	addVote = function(config)
+		if Player.Username ~= "boumety" then return end
+		world:Get("votes", function(s,r)
+			if s then
+				local t = r.votes
+				table.insert(t, config)
+				world:Set("votes", t, function(s) end)
+			end
+		end)
+	end
 end
 
 Client.Tick = function()
-	if time ~= nil then
-		if time + 3600 == Time.Unix() then
-			time = Time.Unix()
-			paid()
-		end
-	end
 end
 
 Pointer.Click = function(pointerEvent)
 	local impact = pointerEvent:CastRay()
+
+	if houseInformations ~= nil then houseInformations = radialMenu:remove() end
+
 	if impact.Object.Name ~= nil then
-		print(impact.Object.Name)
+		createHouseInformations(impact.Object)
+
 		ease:linear(Camera, 0.1).Position = {impact.Object.Position.X + 2.5, 26, impact.Object.Position.Z - 10}
 	end
 
@@ -364,6 +728,7 @@ Pointer.Click = function(pointerEvent)
 					blocks.roads = t
 					world:Set("roads",t, function(s)
 						if s then
+							log(Time.Unix(),Player.Username,"Place its road at the coordinates: " .. "[ X: " .. impact.Block.Coordinates.X .. " Y: " .. impact.Block.Coordinates.Y .. " Z: " .. impact.Block.Coordinates.Z .. " ]")
 							currentState = states.CLAIM_HOUSE
 							loadRoads()
 						else
@@ -411,11 +776,13 @@ Pointer.Click = function(pointerEvent)
 end
 
 Pointer.Drag = function(pointerEvent)
+	if houseInformations ~= nil then houseInformations = radialMenu:remove() end
     Camera.Position.X = Camera.Position.X - pointerEvent.DX / (Map.Scale.X*2)
     Camera.Position.Z = Camera.Position.Z - pointerEvent.DY / (Map.Scale.Z*2)
 end
 
 Pointer.Zoom = function(zoomValue)
+	if houseInformations ~= nil then houseInformations = radialMenu:remove() end
     Camera.Position = Camera.Position + Camera.Forward * 5 * -zoomValue
 end
 
